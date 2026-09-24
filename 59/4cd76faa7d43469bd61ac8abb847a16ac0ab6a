@@ -1,0 +1,25 @@
+src/core/config-loader.ts
+  s_c9d1dd237676a1::t_c02b0be917ed5c 809
+src/core/orchestrator.ts
+  s_c9d1dd237676a1::t_0b919f8cfb513d 51,137,1288-1305
+src/inputs/cursor-cli-transcript/cursor-cli-transcript.ts
+  s_c9d1dd237676a1::t_7e3dd2133f54f0 1-160
+tests/unit/inputs/cursor-cli-transcript-input.test.ts
+  s_c9d1dd237676a1::t_82f16525377608 1-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "594cd76faa7d43469bd61ac8abb847a16ac0ab6a",
+  "prompts": {},
+  "sessions": {
+    "s_c9d1dd237676a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2fd3d952-d689-4f81-86db-688bcca0148d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Pedro Guimarães <21346846+0x7067@users.noreply.github.com>"
+    }
+  }
+}
