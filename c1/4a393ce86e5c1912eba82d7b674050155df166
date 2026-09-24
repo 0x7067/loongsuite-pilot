@@ -1,0 +1,33 @@
+agents.d/opencode.json
+  s_8919e5912302ac::t_799158bbd841ec 16,20-21
+assets/plugins/opencode/index.js
+  s_8919e5912302ac::t_d8d7082822e3b8 1
+assets/plugins/opencode/plugin.mjs
+  s_8919e5912302ac::t_1f458a58f29e58 315,956,1022-1329
+deploy/installer-opensource.ps1
+  s_8919e5912302ac::t_30fa55d9877d4e 2191
+deploy/installer-opensource.sh
+  s_8919e5912302ac::t_3d0556898946bb 2485
+scripts/check-opencode-injection.sh
+  s_8919e5912302ac::t_46491fa84ba1f9 34
+tests/unit/deploy/installer-uninstall-cleanup.test.mjs
+  s_8919e5912302ac::t_91a3e0d4cfe62c 221,223,225
+tests/unit/deployment/plugin-inject-strategy.test.ts
+  s_8919e5912302ac::t_3c8f57817cfe20 106
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c14a393ce86e5c1912eba82d7b674050155df166",
+  "prompts": {},
+  "sessions": {
+    "s_8919e5912302ac": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a313bcf9-573c-4fee-ba6b-49c20b5ea6ea",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Pedro Guimarães <21346846+0x7067@users.noreply.github.com>"
+    }
+  }
+}
