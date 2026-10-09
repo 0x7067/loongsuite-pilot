@@ -1,6 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { HookStrategy } from '../../../src/deployment/hook-strategy.js';
+import { HookManager } from '../../../src/hooks/hook-manager.js';
+import { isolateAgentHome } from '../../helpers/isolated-agent-home.js';
 import type { AgentDefinition, DeployedAgentRecord } from '../../../src/types/index.js';
+
+vi.mock('node:os', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  const homedir = vi.fn(actual.homedir);
+  return { ...actual, homedir, default: { ...actual, homedir } };
+});
 
 vi.mock('node:fs/promises', async () => {
   const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises');
@@ -1209,5 +1219,122 @@ describe('HookStrategy', () => {
         .mockResolvedValue(true);
       await expect(strategy.needsDeploy(qoderWithInterceptor())).resolves.toBe(true);
     });
+  });
+});
+
+
+describe('home-relative spellings of installed Pilot hooks', () => {
+  const SCRIPT_NAME = 'claude-code-loongsuite-pilot-hook.sh';
+  const THIRD_PARTY = '/usr/local/bin/third-party-stop.sh';
+  let home: string;
+  let restoreHome: () => void;
+  let files: Map<string, string>;
+  let script: string;
+  let strategy: HookStrategy;
+
+  const readSettings = (file: string) => JSON.parse(files.get(file)!) as Record<string, any>;
+  const commandsIn = (entries: any[]): string[] => entries.flatMap((entry: any) =>
+    (Array.isArray(entry.hooks) ? entry.hooks : [entry]).map((h: any) => h.command as string));
+  const pilotOnly = (commands: string[]) => commands.filter(c => c.includes(SCRIPT_NAME));
+
+  beforeEach(async () => {
+    home = await fs.mkdtemp(path.join(os.tmpdir(), 'hook-home-'));
+    restoreHome = isolateAgentHome(home);
+    script = path.join(home, '.loongsuite-pilot', 'hooks', SCRIPT_NAME);
+    files = new Map();
+    vi.mocked(readJsonFile).mockImplementation(async (p: string) =>
+      files.has(p) ? JSON.parse(files.get(p)!) : null);
+    vi.mocked(writeJsonFile).mockImplementation(async (p: string, data: unknown) => {
+      files.set(p, JSON.stringify(data, null, 2));
+    });
+    vi.mocked(fs.readFile).mockImplementation((async (p: string) => {
+      if (!files.has(String(p))) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      return files.get(String(p))!;
+    }) as any);
+    strategy = new HookStrategy(new HookManager(path.dirname(script), path.join(home, '.loongsuite-pilot', 'logs')));
+  });
+
+  afterEach(async () => {
+    restoreHome();
+    vi.mocked(readJsonFile).mockReset();
+    vi.mocked(writeJsonFile).mockReset();
+    vi.mocked(fs.readFile).mockReset();
+    await fs.rm(home, { recursive: true, force: true });
+  });
+
+  const claudeDef = (settingsPath: string): AgentDefinition => ({
+    id: 'claude-code',
+    displayName: 'Claude Code',
+    deployMode: 'hook',
+    detection: { paths: [], commands: [] },
+    hook: {
+      settingsPath,
+      events: ['Stop'],
+      hookCommand: script,
+      format: 'nested',
+      eventSubcommand: 'kebab-case',
+    },
+  });
+
+  const claudeSettingsWith = (command: string) => ({
+    hooks: {
+      Stop: [
+        { matcher: '', hooks: [{ type: 'command', command }] },
+        { matcher: '', hooks: [{ type: 'command', command: THIRD_PARTY }] },
+      ],
+    },
+  });
+
+  it.each([
+    ['$HOME', (rest: string) => `$HOME${rest}`],
+    ['~', (rest: string) => `~${rest}`],
+  ])('replaces a %s spelling of the Pilot Claude hook with one canonical entry', async (_name, spell) => {
+    const settingsPath = path.join(home, '.claude', 'settings.json');
+    files.set(settingsPath, JSON.stringify(claudeSettingsWith(`${spell(script.slice(home.length))} stop`)));
+
+    const result = await strategy.deploy(claudeDef(settingsPath));
+
+    expect(result.success).toBe(true);
+    const stop = commandsIn(readSettings(settingsPath).hooks.Stop);
+    expect(pilotOnly(stop)).toEqual([`${script} stop`]);
+    expect(stop).toContain(THIRD_PARTY);
+  });
+
+  it('deploying twice leaves the Claude settings file unchanged on the second run', async () => {
+    const settingsPath = path.join(home, '.claude', 'settings.json');
+    files.set(settingsPath, JSON.stringify(claudeSettingsWith(`$HOME${script.slice(home.length)} stop`)));
+
+    await strategy.deploy(claudeDef(settingsPath));
+    const afterFirst = files.get(settingsPath);
+    const second = await strategy.deploy(claudeDef(settingsPath));
+
+    expect(second.success).toBe(true);
+    expect(files.get(settingsPath)).toBe(afterFirst);
+    expect(pilotOnly(commandsIn(readSettings(settingsPath).hooks.Stop))).toEqual([`${script} stop`]);
+  });
+
+  it('replaces a $HOME spelling in a Codex hooks.json with one Pilot entry', async () => {
+    const hooksPath = path.join(home, '.codex', 'hooks.json');
+    const codexDef: AgentDefinition = {
+      id: 'codex',
+      displayName: 'Codex',
+      deployMode: 'hook',
+      detection: { paths: [], commands: [] },
+      hook: {
+        settingsPath: hooksPath,
+        events: ['Stop'],
+        hookCommand: script,
+        format: 'nested',
+        eventSubcommand: 'kebab-case',
+      },
+    };
+    files.set(hooksPath, JSON.stringify({
+      hooks: { Stop: [{ hooks: [{ type: 'command', command: `$HOME${script.slice(home.length)} stop` }] }] },
+    }));
+
+    const result = await strategy.deploy(codexDef);
+
+    expect(result.success).toBe(true);
+    expect(pilotOnly(commandsIn(readSettings(hooksPath).hooks.Stop))).toEqual([`${script} stop`]);
   });
 });

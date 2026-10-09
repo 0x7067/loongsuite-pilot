@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
   AgentDefinition,
@@ -99,6 +100,25 @@ function formatHookCommand(
   return appendEventSubcommand(wrapPs1Command(hookCommand, agentId), event, style);
 }
 
+/**
+ * Home-relative spellings (`$HOME/...`, `~/...`) of an absolute script under the
+ * current home directory. Dotfile-synced settings often hold these for the same
+ * installed hook, so they must be replaced rather than duplicated.
+ */
+function homeRelativeHookPaths(script: string): string[] {
+  if (process.platform === 'win32') return [];
+  const home = os.homedir();
+  if (!script.startsWith(`${home}/`)) return [];
+  const rest = script.slice(home.length);
+  return [
+    `$HOME${rest}`,
+    `"$HOME${rest}"`,
+    '${HOME}' + rest,
+    '"${HOME}' + rest + '"',
+    `~${rest}`,
+  ];
+}
+
 function legacyHookCommands(
   hookCommand: string,
   event: string,
@@ -106,9 +126,15 @@ function legacyHookCommands(
   agentId: string,
 ): string[] {
   if (process.platform !== 'win32' && agentId === 'claude-code') {
-    return legacyClaudeHookPaths(hookCommand).map(command => appendEventSubcommand(command, event, style));
+    const commands = [...legacyClaudeHookPaths(hookCommand), ...homeRelativeHookPaths(hookCommand)];
+    return [...new Set(commands.map(command => appendEventSubcommand(command, event, style)))];
   }
-  if (process.platform !== 'win32' || (agentId !== 'codex' && agentId !== 'grok-build')) return [];
+  if (process.platform !== 'win32') {
+    const current = formatHookCommand(hookCommand, event, style, agentId);
+    return [...new Set(homeRelativeHookPaths(hookCommand).map(command => appendEventSubcommand(command, event, style)))]
+      .filter(command => command !== current);
+  }
+  if (agentId !== 'codex' && agentId !== 'grok-build') return [];
 
   const current = formatHookCommand(hookCommand, event, style, agentId);
   return [...new Set([
