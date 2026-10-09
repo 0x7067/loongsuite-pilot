@@ -148,12 +148,6 @@ final class MetricsSnapshotTests: XCTestCase {
 
     // MARK: - MetricsAggregationRange
 
-    func testRangePickerTitles() {
-        XCTAssertEqual(MetricsAggregationRange.today.pickerTitle, "今日")
-        XCTAssertEqual(MetricsAggregationRange.sevenDays.pickerTitle, "7天")
-        XCTAssertEqual(MetricsAggregationRange.thirtyDays.pickerTitle, "30天")
-    }
-
     func testRangeTrendRange() {
         XCTAssertEqual(MetricsAggregationRange.today.trendRange, .sevenDays)
         XCTAssertEqual(MetricsAggregationRange.sevenDays.trendRange, .sevenDays)

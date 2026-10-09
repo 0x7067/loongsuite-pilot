@@ -19,46 +19,26 @@ private enum DT {
     static let cyan     = Color(red: 0.13, green: 0.83, blue: 0.93)
 }
 
-// MARK: - PanelContentView
+// MARK: - Header
 
-struct PanelContentView: View {
+private struct PanelHeader: View {
     @ObservedObject var runtimeStore: PilotRuntimeStore
-    @ObservedObject var metricsStore: PilotMetricsStore
     let closePanel: () -> Void
 
+    private static let isoParser: ISO8601DateFormatter = {
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return parser
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        formatter.timeZone = .current
+        return formatter
+    }()
+
     var body: some View {
-        ZStack {
-            DT.bg.ignoresSafeArea()
-
-            VStack(spacing: 0) {
-                header
-                Divider().background(DT.border)
-
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 12) {
-                        statsGrid
-                        rangeSelector
-                        agentsSection
-                        providersSection
-                        modelsSection
-                        reposSection
-                        tokenTrendSection
-                        sessionTrendSection
-                        tokenBreakdownSection
-                        if let msg = metricsStore.snapshot.errorMessage {
-                            errorBanner(msg)
-                        }
-                    }
-                    .padding(16)
-                }
-            }
-        }
-        .frame(minWidth: 480, minHeight: 640)
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
         HStack(spacing: 10) {
             Circle()
                 .fill(statusColor)
@@ -98,6 +78,53 @@ struct PanelContentView: View {
 
     private var statusColor: Color {
         runtimeStore.isReachable ? DT.green : DT.amber
+    }
+
+    private func shortTime(_ iso: String) -> String {
+        guard let date = Self.isoParser.date(from: iso) else {
+            return String(iso.prefix(19)).replacingOccurrences(of: "T", with: " ")
+        }
+        return Self.timeFormatter.string(from: date)
+    }
+}
+
+// MARK: - PanelContentView
+
+struct PanelContentView: View {
+    // Only the header observes runtime state, so a daemon status change does
+    // not re-evaluate the metrics sections and their charts.
+    let runtimeStore: PilotRuntimeStore
+    @ObservedObject var metricsStore: PilotMetricsStore
+    let closePanel: () -> Void
+
+    var body: some View {
+        ZStack {
+            DT.bg.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                PanelHeader(runtimeStore: runtimeStore, closePanel: closePanel)
+                Divider().background(DT.border)
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 12) {
+                        statsGrid
+                        rangeSelector
+                        agentsSection
+                        providersSection
+                        modelsSection
+                        reposSection
+                        tokenTrendSection
+                        sessionTrendSection
+                        tokenBreakdownSection
+                        if let msg = metricsStore.snapshot.errorMessage {
+                            errorBanner(msg)
+                        }
+                    }
+                    .padding(16)
+                }
+            }
+        }
+        .frame(minWidth: 480, minHeight: 640)
     }
 
     // MARK: - Stats Grid
@@ -443,17 +470,5 @@ struct PanelContentView: View {
             .font(.system(size: 11))
             .foregroundStyle(DT.dim)
             .padding(.vertical, 4)
-    }
-
-    private func shortTime(_ iso: String) -> String {
-        let parser = ISO8601DateFormatter()
-        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard let date = parser.date(from: iso) else {
-            return String(iso.prefix(19)).replacingOccurrences(of: "T", with: " ")
-        }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        formatter.timeZone = .current
-        return formatter.string(from: date)
     }
 }
