@@ -941,6 +941,18 @@ cmd_run_updater() {
     exec "$node_bin" "$BOOTSTRAP_DIR/updater-daemon.js"
 }
 
+# Prints the newest pino-roll rotated service log, or $LOG_FILE when none exist.
+# The base $LOG_FILE is truncated in daemon mode, so hints must point at rotated files.
+current_service_log() {
+    local newest=""
+    newest=$(ls -t "$LOG_FILE".* 2>/dev/null | head -n 1) || true
+    if [ -n "$newest" ] && [ -f "$newest" ]; then
+        printf '%s\n' "$newest"
+    else
+        printf '%s\n' "$LOG_FILE"
+    fi
+}
+
 cmd_start() {
     cleanup_legacy_monitor_processes
     for arg in "$@"; do
@@ -960,7 +972,12 @@ cmd_start() {
     sync_bootstrap_scripts
 
     if autostart_install "true"; then
-        sleep 2
+        # Poll for up to 10s (20 x 0.5s); a busy host can take several seconds to launch.
+        local attempt=0
+        while [ "$attempt" -lt 20 ] && ! is_running; do
+            sleep 0.5
+            attempt=$((attempt + 1))
+        done
         if is_running; then
             local init_type
             init_type=$(cat "$INIT_TYPE_FILE" 2>/dev/null | tr -d '[:space:]')
@@ -969,7 +986,7 @@ cmd_start() {
         fi
         local init_type
         init_type=$(cat "$INIT_TYPE_FILE" 2>/dev/null | tr -d '[:space:]')
-        echo "⚠️  Service registered (${init_type:-unknown}) but collector process not found after 2s. Check logs: $LOG_FILE" >&2
+        echo "⚠️  Service registered (${init_type:-unknown}) but collector process not found after 10s. Check logs: $(current_service_log)" >&2
         echo "   Autostart is configured; the service manager will keep retrying." >&2
         return 0
     fi
@@ -1554,7 +1571,7 @@ request.end();
 timer = setTimeout(() => {
   request.destroy();
   finish(1);
-}, 300);
+}, 2000);
 ' "$port" "$effective_data_dir" >/dev/null 2>&1
 }
 
