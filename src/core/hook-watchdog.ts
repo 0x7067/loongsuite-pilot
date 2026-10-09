@@ -712,7 +712,7 @@ export class HookWatchdog {
    * `signature` is a substring unique to the CURRENT block shape. check()/
    * repair() use it — not just `marker` — to detect and migrate
    * an older block that shares the same marker (e.g. the released bare
-   * `<cli>() {...}` form). It is matched WITHIN the block's own marker region,
+   * `<cli>() {...}` form, or the unguarded preload-only eval). It is matched WITHIN the block's own marker region,
    * not across the whole rc file, so a neighbouring block cannot vouch for a
    * stale one. Keep it byte-identical to the installer's grep.
    * `endMarker` bounds the block for removal/migration.
@@ -772,13 +772,13 @@ export class HookWatchdog {
         agentId: 'claude-code',
         marker: 'loongsuite-pilot BEGIN claude-code-intercept',
         endMarker: 'loongsuite-pilot END claude-code-intercept',
-        signature: 'if ! alias claude >/dev/null 2>&1',
+        signature: 'else command claude "$@"',
         scriptName: 'claude-code-fetch-intercept.mjs',
         blockFn: (p) => [
           '',
           '# loongsuite-pilot BEGIN claude-code-intercept',
           'if ! alias claude >/dev/null 2>&1 && ! typeset -f claude >/dev/null 2>&1; then',
-          `  eval 'claude() { BUN_OPTIONS="--preload=${p} \${BUN_OPTIONS}" command claude "$@"; }'`,
+          `  eval 'claude() { if [ -f "${p}" ]; then BUN_OPTIONS="--preload=${p} \${BUN_OPTIONS}" command claude "$@"; else command claude "$@"; fi; }'`,
           'fi',
           '# loongsuite-pilot END claude-code-intercept',
         ].join('\n'),

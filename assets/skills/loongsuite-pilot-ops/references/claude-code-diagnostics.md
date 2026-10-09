@@ -140,8 +140,10 @@ type claude 2>/dev/null
 
 ```bash
 claude is a function
-claude () { BUN_OPTIONS="--preload=/Users/<you>/.loongsuite-pilot/hooks/claude-code-fetch-intercept.mjs ${BUN_OPTIONS}" command claude "$@"; }
+claude () { if [ -f "/Users/<you>/.loongsuite-pilot/hooks/claude-code-fetch-intercept.mjs" ]; then BUN_OPTIONS="--preload=/Users/<you>/.loongsuite-pilot/hooks/claude-code-fetch-intercept.mjs ${BUN_OPTIONS}" command claude "$@"; else command claude "$@"; fi; }
 ```
+
+若 preload 文件缺失，包装器会直接运行普通 `claude`（不注入 `--preload`，采集关闭但不影响启动）。
 
 若第 2 步有注入块但第 3 步仍不是 function → 用户需要执行 `source ~/.zshrc` / `source ~/.bashrc` 或打开新终端。
 
