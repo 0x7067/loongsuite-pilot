@@ -356,6 +356,21 @@ describe('Orchestrator', () => {
       expect(mockMetricsSummaryStop).toHaveBeenCalledOnce();
     });
 
+    it('serves the dashboard before input discovery replays history', async () => {
+      const orch = new Orchestrator(makeConfig());
+      await orch.start();
+
+      expect(mockDashboardStart).toHaveBeenCalledOnce();
+      expect(mockMetricsSummaryStart).toHaveBeenCalledOnce();
+      expect(mockDiscoveryStart).toHaveBeenCalledOnce();
+      expect(mockDashboardStart.mock.invocationCallOrder[0])
+        .toBeLessThan(mockDiscoveryStart.mock.invocationCallOrder[0]);
+      expect(mockMetricsSummaryStart.mock.invocationCallOrder[0])
+        .toBeLessThan(mockDiscoveryStart.mock.invocationCallOrder[0]);
+
+      await orch.stop();
+    });
+
     it('keeps starting and stops safely when the dashboard rejects', async () => {
       mockDashboardStart.mockRejectedValueOnce(new Error('dashboard exploded'));
       const events: string[] = [];

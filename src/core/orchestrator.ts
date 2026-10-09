@@ -316,6 +316,64 @@ export class Orchestrator extends EventEmitter {
     });
     await this.localWorkerActivationService.start();
 
+    // 5b. Start the collector-owned local surfaces before input discovery.
+    // Discovery starts inputs one at a time, and an input's first start can
+    // replay a large history (over 20 minutes on a fresh install). Runtime
+    // health, the dashboard and the interceptor need none of that work: the
+    // hooks deployed above call the interceptor and `loongsuite-pilot status`
+    // probes the dashboard right away.
+    //
+    // Always publish runtime health for service managers. The status bar UI
+    // may be disabled, but Windows Task Scheduler still needs runtime.json to
+    // distinguish a healthy collector from a task whose child process died.
+    const packageVersion = this.readPackageVersion();
+    const packageGitCommit = this.readPackageGitCommit();
+    this.runtimeWriter = new RuntimeWriter(
+      this.dataDir,
+      this.config.statusBar,
+      packageVersion,
+      packageGitCommit,
+    );
+    this.runtimeWriter.start();
+
+    // MetricsSummaryWriter is a collector-owned source shared by every local
+    // presentation surface. It must keep running when the optional native menu
+    // bar app is disabled.
+    this.metricsSummaryWriter = new MetricsSummaryWriter(
+      this.dataDir,
+      this.config.statusBar,
+      this.config.flushers.jsonl?.outputDir,
+    );
+    this.metricsSummaryWriter.start();
+
+    // The local dashboard shares the collector lifecycle and is non-fatal when
+    // its loopback port is unavailable. It never opens the system browser.
+    this.dashboardServer = new DashboardServer({
+      dataDir: this.dataDir,
+      assetPath: path.join(pilotDir, 'assets', 'dashboard', 'index.html'),
+      port: this.config.dashboard.port,
+    });
+    await this.dashboardServer.start().catch(err => {
+      logger.warn('dashboard start failed (non-fatal)', { error: String(err) });
+    });
+
+    // Interceptor HTTP shares this process. A bind failure leaves hooks fail-open
+    // and must not keep the collector from collecting.
+    this.interceptorService = await startInterceptorService({
+      dataDir: this.dataDir,
+      version: packageVersion,
+      gitCommit: packageGitCommit || undefined,
+      verdictStore: this.verdictStore ?? undefined,
+      emitBlockedPrompt: (entry) => {
+        void this.inputManager.flushPreparedEntries([entry]).catch(err => {
+          logger.warn('blocked prompt flush failed', { error: String(err) });
+        });
+      },
+    }).catch(err => {
+      logger.warn('interceptor start failed (non-fatal)', { error: String(err) });
+      return null;
+    });
+
     // 6. Register inputs & build detection entries
     const detectionEntries = await this.registerAllInputs();
 
@@ -394,57 +452,6 @@ export class Orchestrator extends EventEmitter {
       autoUpdateEnabled: this.config.autoUpdate?.enabled ?? false,
     });
     await this.metricsWriter.start();
-
-    // 14. Always publish runtime health for service managers. The status bar UI
-    // may be disabled, but Windows Task Scheduler still needs runtime.json to
-    // distinguish a healthy collector from a task whose child process died.
-    const packageVersion = this.readPackageVersion();
-    const packageGitCommit = this.readPackageGitCommit();
-    this.runtimeWriter = new RuntimeWriter(
-      this.dataDir,
-      this.config.statusBar,
-      packageVersion,
-      packageGitCommit,
-    );
-    this.runtimeWriter.start();
-
-    // MetricsSummaryWriter is a collector-owned source shared by every local
-    // presentation surface. It must keep running when the optional native menu
-    // bar app is disabled.
-    this.metricsSummaryWriter = new MetricsSummaryWriter(
-      this.dataDir,
-      this.config.statusBar,
-      this.config.flushers.jsonl?.outputDir,
-    );
-    this.metricsSummaryWriter.start();
-
-    // The local dashboard shares the collector lifecycle and is non-fatal when
-    // its loopback port is unavailable. It never opens the system browser.
-    this.dashboardServer = new DashboardServer({
-      dataDir: this.dataDir,
-      assetPath: path.join(pilotDir, 'assets', 'dashboard', 'index.html'),
-      port: this.config.dashboard.port,
-    });
-    await this.dashboardServer.start().catch(err => {
-      logger.warn('dashboard start failed (non-fatal)', { error: String(err) });
-    });
-
-    // Interceptor HTTP shares this process. A bind failure leaves hooks fail-open
-    // and must not keep the collector from collecting.
-    this.interceptorService = await startInterceptorService({
-      dataDir: this.dataDir,
-      version: packageVersion,
-      gitCommit: packageGitCommit || undefined,
-      verdictStore: this.verdictStore ?? undefined,
-      emitBlockedPrompt: (entry) => {
-        void this.inputManager.flushPreparedEntries([entry]).catch(err => {
-          logger.warn('blocked prompt flush failed', { error: String(err) });
-        });
-      },
-    }).catch(err => {
-      logger.warn('interceptor start failed (non-fatal)', { error: String(err) });
-      return null;
-    });
 
     // Only the native macOS menu bar app remains optional.
     if (this.config.statusBar.enabled) {
