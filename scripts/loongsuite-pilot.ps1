@@ -1949,7 +1949,7 @@ request.end();
 timer = setTimeout(() => {
   request.destroy();
   finish(1);
-}, 300);
+}, 2000);
 '@
 
     try {

@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -267,7 +267,7 @@ describe('dashboard service lifecycle', () => {
       expect(probe).toContain('x-loongsuite-pilot-instance');
       expect(probe).toContain('metrics-summary-v1');
       expect(probe).toContain('setTimeout');
-      expect(probe).toContain('}, 300)');
+      expect(probe).toContain('}, 2000)');
     }
     expect(runtimeSh).toContain('port = JSON.parse(fs.readFileSync(path, "utf8"))?.dashboard?.port');
     expect(runtimeSh).toContain('configured = JSON.parse(fs.readFileSync(configPath, "utf8"))?.dataDir');
@@ -281,6 +281,32 @@ describe('dashboard service lifecycle', () => {
     expect(runtimePs1).toContain('http://127.0.0.1:$dashboardPort/');
     expect(runtimeSh).not.toContain('18765');
     expect(runtimePs1).not.toContain('18765');
+  });
+
+  it('current_service_log prints the newest rotated log, or the base log when none exist', () => {
+    const root = mkdtempSync(resolve(tmpdir(), 'pilot-service-log-'));
+    const baseLog = resolve(root, 'loongsuite-pilot-service.log');
+    const functionSource = runtimeSh.slice(
+      runtimeSh.indexOf('current_service_log()'),
+      runtimeSh.indexOf('cmd_start()'),
+    );
+    const run = () => spawnSync('bash', ['-c', `LOG_FILE="$1"\n${functionSource}\ncurrent_service_log`, 'test', baseLog], {
+      encoding: 'utf8',
+    });
+
+    try {
+      expect(run().stdout.trim()).toBe(baseLog);
+
+      const older = resolve(root, 'loongsuite-pilot-service.log.2026-09-23.1');
+      const newer = resolve(root, 'loongsuite-pilot-service.log.2026-09-24.1');
+      writeFileSync(older, 'old\n');
+      writeFileSync(newer, 'new\n');
+      utimesSync(older, new Date('2026-09-23T10:00:00Z'), new Date('2026-09-23T10:00:00Z'));
+      utimesSync(newer, new Date('2026-09-24T10:00:00Z'), new Date('2026-09-24T10:00:00Z'));
+      expect(run().stdout.trim()).toBe(newer);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
