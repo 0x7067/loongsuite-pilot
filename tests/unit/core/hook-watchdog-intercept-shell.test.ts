@@ -33,6 +33,16 @@ function blockFor(id: string): string {
   return def.blockFn(`/tmp/pilot-hooks/${def.scriptName}`);
 }
 
+// The composes-BUN_OPTIONS cases need the preload to exist, otherwise the
+// block takes the fail-open path and never injects --preload.
+function blockWithPreloadPresent(): string {
+  const def = HookWatchdog.interceptRcBlockDefs().find(d => d.id === 'claude-code-rc')!;
+  const dir = mkdtempSync(join(tmpdir(), 'claude-preload-'));
+  const p = join(dir, def.scriptName);
+  writeFileSync(p, '// stub\n');
+  return def.blockFn(p);
+}
+
 function sourceInBash(script: string): string {
   // shopt -s expand_aliases makes non-interactive bash expand aliases, matching
   // the interactive rc-sourcing behavior where the parse-time collision occurs.
@@ -62,7 +72,7 @@ describe('rc intercept block sources safely in real shells', () => {
     });
 
     it('defines the wrapper and composes BUN_OPTIONS when no alias exists', () => {
-      const block = blockFor('claude-code-rc');
+      const block = blockWithPreloadPresent();
       const out = sourceInBash(
         `export BUN_OPTIONS='--preload=/user/own.mjs'\n${block}\n${PROBE}\nclaude hello`,
       );
@@ -96,7 +106,7 @@ describe('rc intercept block sources safely in real shells', () => {
     });
 
     it('defines the wrapper and composes BUN_OPTIONS when no alias exists', () => {
-      const block = blockFor('claude-code-rc');
+      const block = blockWithPreloadPresent();
       const out = sourceInZsh(
         `export BUN_OPTIONS='--preload=/user/own.mjs'\n${block}\n${PROBE}\nclaude hello`,
       );
@@ -154,6 +164,50 @@ describe('rc intercept block sources safely in real shells', () => {
       expect(out).toContain('SRC_OK');                 // no syntax error
       expect(out).toContain('dangerously-skip-permissions'); // user alias preserved
     });
+  });
+});
+
+// Telemetry must be fail-open: the rc block runs on every shell start, so a
+// missing preload (rc synced before Pilot is installed, data dir removed) must
+// fall back to plain `claude` instead of failing with a BUN_OPTIONS preload error.
+describe.skipIf(!HAS_BASH)('claude wrapper fails open when the preload is missing (bash)', () => {
+  const def = HookWatchdog.interceptRcBlockDefs().find(d => d.id === 'claude-code-rc')!;
+  let dir: string;
+  let preload: string;
+
+  function runClaude(): string {
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}` };
+    delete env.BUN_OPTIONS;
+    return execFileSync('bash', ['-c', `${def.blockFn(preload)}\nclaude hello`], {
+      encoding: 'utf-8',
+      env,
+    });
+  }
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'claude-failopen-'));
+    mkdirSync(join(dir, 'bin'));
+    writeFileSync(join(dir, 'bin', 'claude'), '#!/bin/sh\necho "STUB BUN_OPTIONS=$BUN_OPTIONS args=[$*]"\n', { mode: 0o755 });
+    preload = join(dir, 'hooks', def.scriptName);
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('injects --preload and runs claude when the preload file exists', () => {
+    mkdirSync(join(dir, 'hooks'));
+    writeFileSync(preload, '// stub\n');
+    const out = runClaude();
+    expect(out).toContain('STUB');
+    expect(out).toContain(`--preload=${preload}`);
+    expect(out).toContain('args=[hello]');
+  });
+
+  it('runs plain claude without --preload when the preload file is absent', () => {
+    expect(existsSync(preload)).toBe(false);
+    const out = runClaude(); // execFileSync throws on non-zero exit
+    expect(out).toContain('STUB');
+    expect(out).not.toContain('--preload');
+    expect(out).toContain('args=[hello]');
   });
 });
 

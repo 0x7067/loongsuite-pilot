@@ -1644,7 +1644,7 @@ inject_claude_code_fetch_intercept() {
         # so the new guarded block below replaces it (the old bare block
         # parse-errors under a user alias, which is exactly what we're fixing).
         if grep -q 'loongsuite-pilot BEGIN claude-code-intercept' "$file" 2>/dev/null; then
-            if grep -qF 'if ! alias claude >/dev/null 2>&1' "$file"; then return 0; fi
+            if grep -qF 'else command claude "$@"' "$file"; then return 0; fi
             _sed_inplace '/# loongsuite-pilot BEGIN claude-code-intercept/,/# loongsuite-pilot END claude-code-intercept/d' "$file"
         fi
         [ -s "$file" ] && [ "$(tail -c1 "$file" | wc -l)" -eq 0 ] && echo "" >> "$file"
@@ -1661,7 +1661,7 @@ inject_claude_code_fetch_intercept() {
 
 # loongsuite-pilot BEGIN claude-code-intercept
 if ! alias claude >/dev/null 2>&1 && ! typeset -f claude >/dev/null 2>&1; then
-  eval 'claude() { BUN_OPTIONS="--preload=$DATA_DIR/hooks/claude-code-fetch-intercept.mjs \${BUN_OPTIONS}" command claude "\$@"; }'
+  eval 'claude() { if [ -f "$DATA_DIR/hooks/claude-code-fetch-intercept.mjs" ]; then BUN_OPTIONS="--preload=$DATA_DIR/hooks/claude-code-fetch-intercept.mjs \${BUN_OPTIONS}" command claude "\$@"; else command claude "\$@"; fi; }'
 fi
 # loongsuite-pilot END claude-code-intercept
 INTERCEPTBLOCK

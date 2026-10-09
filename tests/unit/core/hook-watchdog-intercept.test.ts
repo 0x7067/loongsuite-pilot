@@ -640,7 +640,15 @@ describe('intercept rc target check/repair/cleanup against a temp rc (real closu
 
   const SCRIPT = 'claude-code-fetch-intercept.mjs';
   const WRAPPER = 'qodercli-runtime-wrapper.sh';
-  const SIG = 'if ! alias claude >/dev/null 2>&1';
+  const SIG = 'else command claude "$@"';
+  // Previous shape: guarded eval with no preload-missing fallback.
+  const PREV_GUARDED_BLOCK = [
+    '# loongsuite-pilot BEGIN claude-code-intercept',
+    'if ! alias claude >/dev/null 2>&1 && ! typeset -f claude >/dev/null 2>&1; then',
+    `  eval 'claude() { BUN_OPTIONS="--preload=/old/hooks/${SCRIPT} \${BUN_OPTIONS}" command claude "$@"; }'`,
+    'fi',
+    '# loongsuite-pilot END claude-code-intercept',
+  ].join('\n');
   const OLD_BARE_BLOCK = [
     '# loongsuite-pilot BEGIN claude-code-intercept',
     'claude() { BUN_OPTIONS="--preload=/old ${BUN_OPTIONS}" command claude "$@"; }',
@@ -679,7 +687,7 @@ describe('intercept rc target check/repair/cleanup against a temp rc (real closu
     for (const rcFile of [zshrc, bashrc]) {
       const rc = fs.readFileSync(rcFile, 'utf-8');
       expect(rc).toContain(SIG);
-      expect(rc).toContain(`eval 'claude() { BUN_OPTIONS="--preload=`);
+      expect(rc).toContain(`eval 'claude() { if [ -f "`);
       expect(rc).toContain('${BUN_OPTIONS}');
       expect(rc).not.toMatch(/^\s*claude\(\)/m); // no bare def token
     }
@@ -698,6 +706,19 @@ describe('intercept rc target check/repair/cleanup against a temp rc (real closu
     expect(rc).toContain(SIG);                       // migrated to guarded block
     expect(rc.match(/BEGIN claude-code-intercept/g)!.length).toBe(1); // exactly one block
     expect(rc).toContain('# top');                   // surrounding content preserved
+    expect(await t.check()).toBe(true);
+  });
+
+  it('check() flags the previous guarded block as stale and repair() migrates it', async () => {
+    fs.writeFileSync(zshrc, `# top\n\n${PREV_GUARDED_BLOCK}\n`);
+    const t = claudeTarget();
+    expect(await t.check()).toBe(false); // same marker, no fallback → stale
+
+    await t.repair();
+    const rc = fs.readFileSync(zshrc, 'utf-8');
+    expect(rc).not.toContain('--preload=/old');      // previous block gone
+    expect(rc).toContain(SIG);                       // migrated to fallback block
+    expect(rc.match(/BEGIN claude-code-intercept/g)!.length).toBe(1);
     expect(await t.check()).toBe(true);
   });
 
