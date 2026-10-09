@@ -61,6 +61,7 @@ import { CodexTranscriptInput } from '../inputs/codex-transcript/codex-transcrip
 import { KiroCliLogInput } from '../inputs/kiro-cli-log/kiro-cli-log-input.js';
 import { KiroCliSessionInput } from '../inputs/kiro-cli-session/kiro-cli-session-input.js';
 import { OpenCodeLogInput } from '../inputs/opencode-log/opencode-log-input.js';
+import { JcodeLogInput } from '../inputs/jcode-log/jcode-log-input.js';
 import { PiCodingAgentLogInput, ensurePiCodingAgentLogDir } from '../inputs/pi-coding-agent-log/pi-coding-agent-log-input.js';
 import { MimoCodeLogInput } from '../inputs/mimo-code-log/mimo-code-log-input.js';
 import { QwenCodeCliLogInput } from '../inputs/qwen-code-cli-log/qwen-code-cli-log-input.js';
@@ -146,6 +147,7 @@ export class Orchestrator extends EventEmitter {
     'kiro-cli-log': 'kiro-cli',
     'kiro-cli-session': 'kiro-cli',
     'opencode-log': 'opencode',
+    'jcode-log': 'jcode',
     'pi-coding-agent-log': 'pi-coding-agent',
     'mimo-code-log': 'mimo-code',
     'qwen-code-cli-log': 'qwen-code-cli',
@@ -1501,6 +1503,28 @@ export class Orchestrator extends EventEmitter {
             listenerCfg['opencode-log']?.enabled ?? true,
           ),
         pollIntervalMs: listenerCfg['opencode-log']?.pollInterval,
+      }),
+    );
+
+    // --- jcode Log (JSONL written by an external bridge; jcode has no hooks) ---
+    const jcodeLogDir = path.join(this.dataDir, 'logs', 'jcode');
+    await ensureDir(jcodeLogDir);
+    const jcodeLogInput = new JcodeLogInput({
+      stateStore: this.stateStore,
+      logDir: jcodeLogDir,
+      pollIntervalMs: listenerCfg['jcode-log']?.pollInterval,
+    });
+    this.inputManager.registerInput(jcodeLogInput);
+    entries.push(
+      this.inputManager.buildDetectionEntry(jcodeLogInput, {
+        watchPaths: [jcodeLogDir],
+        isAvailable: async () => directoryExists(jcodeLogDir),
+        enabled: () => this.isAgentGatedEnabled(Orchestrator.LISTENER_AGENT_MAP['jcode-log']) &&
+          this.agentControlManager.resolveEnabled(
+            'jcode-log',
+            listenerCfg['jcode-log']?.enabled ?? true,
+          ),
+        pollIntervalMs: listenerCfg['jcode-log']?.pollInterval,
       }),
     );
 
