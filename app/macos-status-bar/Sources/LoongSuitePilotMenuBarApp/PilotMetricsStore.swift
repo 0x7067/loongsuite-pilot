@@ -12,17 +12,17 @@ enum MetricsAggregationRange: String, CaseIterable, Identifiable {
 
     var pickerTitle: String {
         switch self {
-        case .today: return "今日"
-        case .sevenDays: return "7天"
-        case .thirtyDays: return "30天"
+        case .today: return "Today"
+        case .sevenDays: return "7D"
+        case .thirtyDays: return "30D"
         }
     }
 
     var displayTitle: String {
         switch self {
-        case .today: return "今日"
-        case .sevenDays: return "近 7 日"
-        case .thirtyDays: return "近 30 日"
+        case .today: return "Today"
+        case .sevenDays: return "Last 7 days"
+        case .thirtyDays: return "Last 30 days"
         }
     }
 
@@ -55,13 +55,13 @@ enum MetricsAggregationRange: String, CaseIterable, Identifiable {
 
 // MARK: - Data Types
 
-struct DailyMetricPoint: Identifiable {
+struct DailyMetricPoint: Identifiable, Equatable {
     let day: Date
     let value: Int
     var id: TimeInterval { day.timeIntervalSince1970 }
 }
 
-struct AgentStatusItem: Identifiable {
+struct AgentStatusItem: Identifiable, Equatable {
     let agentType: String
     let events: Int
     let tokens: Int
@@ -76,7 +76,7 @@ private func clampedShare(_ raw: Double) -> Double {
     return min(max(raw, 0), 1)
 }
 
-struct ProviderShareItem: Identifiable {
+struct ProviderShareItem: Identifiable, Equatable {
     let provider: String
     let tokens: Int
     let share: Double
@@ -91,7 +91,7 @@ struct ProviderShareItem: Identifiable {
     }
 }
 
-struct ModelShareItem: Identifiable {
+struct ModelShareItem: Identifiable, Equatable {
     let model: String
     let tokens: Int
     let share: Double
@@ -106,7 +106,7 @@ struct ModelShareItem: Identifiable {
     }
 }
 
-struct RepoShareItem: Identifiable {
+struct RepoShareItem: Identifiable, Equatable {
     let repo: String
     let sessions: Int
     let events: Int
@@ -115,7 +115,7 @@ struct RepoShareItem: Identifiable {
 
 // MARK: - Snapshot
 
-struct PilotMetricsSnapshot {
+struct PilotMetricsSnapshot: Equatable {
     var aggregationRange: MetricsAggregationRange
     var totalTokens: Int
     var inputTokens: Int
@@ -271,7 +271,7 @@ final class PilotMetricsStore: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.cachedSummary = file
-                self.snapshot = Self.buildSnapshot(from: file, range: self.selectedRange)
+                self.publish(Self.buildSnapshot(from: file, range: self.selectedRange))
             }
         }
     }
@@ -280,10 +280,16 @@ final class PilotMetricsStore: ObservableObject {
         guard selectedRange != range else { return }
         selectedRange = range
         if let file = cachedSummary {
-            snapshot = Self.buildSnapshot(from: file, range: range)
+            publish(Self.buildSnapshot(from: file, range: range))
         } else {
-            snapshot = PilotMetricsSnapshot.makeEmpty(range: range)
+            publish(PilotMetricsSnapshot.makeEmpty(range: range))
         }
+    }
+
+    /// Publishing re-renders the whole panel, charts included, so skip it when
+    /// a periodic or on-open refresh read the same summary again.
+    private func publish(_ next: PilotMetricsSnapshot) {
+        if snapshot != next { snapshot = next }
     }
 
     private nonisolated static func loadFile(path: String) -> SummaryFile? {
@@ -294,7 +300,7 @@ final class PilotMetricsStore: ObservableObject {
     private static func buildSnapshot(from file: SummaryFile?, range: MetricsAggregationRange) -> PilotMetricsSnapshot {
         guard let file else {
             var empty = PilotMetricsSnapshot.makeEmpty(range: range)
-            empty.errorMessage = "未发现 metrics-summary.json，请先启动 loongsuite-pilot 守护进程。"
+            empty.errorMessage = "metrics-summary.json not found. Start the loongsuite-pilot daemon first."
             return empty
         }
 

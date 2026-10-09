@@ -37,7 +37,7 @@ final class PilotRuntimeStore: ObservableObject {
 
     init() {
         self.snapshot = PilotRuntimeSnapshot(
-            statusText: "等待连接",
+            statusText: "Connecting",
             isActive: false,
             isStatusBarAppEnabled: true,
             appVersionText: "v\(BuildInfo.version)",
@@ -64,9 +64,12 @@ final class PilotRuntimeStore: ObservableObject {
     }
 
     func refresh(forceReload: Bool = false) {
-        var next = loadSnapshot()
-        let alive = next.isActive && probeDaemonAlive(next)
-        isReachable = alive
+        let (loaded, pid) = loadSnapshot()
+        var next = loaded
+        let alive = next.isActive && isProcessAlive(pid)
+        // Assigning a @Published value re-renders the panel even when it is
+        // unchanged, and the panel open path calls this synchronously.
+        if isReachable != alive { isReachable = alive }
 
         if alive {
             consecutiveFailures = 0
@@ -75,7 +78,7 @@ final class PilotRuntimeStore: ObservableObject {
 
             if consecutiveFailures >= maxConsecutiveFailuresForStatus {
                 next = PilotRuntimeSnapshot(
-                    statusText: "守护进程未运行",
+                    statusText: "Daemon not running",
                     isActive: false,
                     isStatusBarAppEnabled: next.isStatusBarAppEnabled,
                     appVersionText: next.appVersionText,
@@ -92,20 +95,20 @@ final class PilotRuntimeStore: ObservableObject {
             }
         }
 
-        snapshot = next
+        if snapshot != next { snapshot = next }
     }
 
-    private func loadSnapshot() -> PilotRuntimeSnapshot {
+    private func loadSnapshot() -> (PilotRuntimeSnapshot, Int?) {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: runtimePath)),
               let file = try? JSONDecoder().decode(RuntimeFile.self, from: data) else {
-            return PilotRuntimeSnapshot(
-                statusText: "未发现运行中的服务",
+            return (PilotRuntimeSnapshot(
+                statusText: "No running service found",
                 isActive: false,
                 isStatusBarAppEnabled: true,
                 appVersionText: "v\(BuildInfo.version)",
                 daemonVersionText: "v--",
                 updatedAt: nil
-            )
+            ), nil)
         }
 
         let active = file.status == "active"
@@ -113,25 +116,18 @@ final class PilotRuntimeStore: ObservableObject {
         let daemonVersion = (version?.isEmpty == false) ? "v\(version!)" : "v--"
         let displayVersion = (version?.isEmpty == false) ? "v\(version!)" : "v\(BuildInfo.version)"
 
-        return PilotRuntimeSnapshot(
-            statusText: active ? "服务运行中" : "服务状态未知",
+        return (PilotRuntimeSnapshot(
+            statusText: active ? "Service running" : "Service status unknown",
             isActive: active,
             isStatusBarAppEnabled: true,
             appVersionText: displayVersion,
             daemonVersionText: daemonVersion,
             updatedAt: file.updatedAt
-        )
+        ), file.pid)
     }
 
-    private func probeDaemonAlive(_ snapshot: PilotRuntimeSnapshot) -> Bool {
-        guard snapshot.isActive else { return false }
-
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: runtimePath)),
-              let file = try? JSONDecoder().decode(RuntimeFile.self, from: data),
-              let pid = file.pid, pid > 0 else {
-            return false
-        }
-
+    private func isProcessAlive(_ pid: Int?) -> Bool {
+        guard let pid, pid > 0 else { return false }
         return kill(Int32(pid), 0) == 0
     }
 }

@@ -2,10 +2,14 @@ import SwiftUI
 import AppKit
 
 final class FloatingPanel: NSPanel {
-    private let visualEffectView: NSVisualEffectView
+    // A plain rounded layer, not NSVisualEffectView: the SwiftUI root paints an
+    // opaque background over the whole panel, so a behind-window blur was never
+    // visible but was still recomputed on every key-state change and composited
+    // continuously while the panel was open.
+    private let containerView: NSView
 
     init(contentRect: NSRect) {
-        visualEffectView = NSVisualEffectView(frame: contentRect)
+        containerView = NSView(frame: contentRect)
         super.init(
             contentRect: contentRect,
             styleMask: [.titled, .closable, .resizable, .nonactivatingPanel, .fullSizeContentView, .utilityWindow],
@@ -31,13 +35,10 @@ final class FloatingPanel: NSPanel {
         standardWindowButton(.miniaturizeButton)?.isHidden = true
         standardWindowButton(.zoomButton)?.isHidden = true
 
-        visualEffectView.material = .sidebar
-        visualEffectView.state = .active
-        visualEffectView.blendingMode = .behindWindow
-        visualEffectView.wantsLayer = true
-        visualEffectView.layer?.cornerRadius = 18
-        visualEffectView.layer?.masksToBounds = true
-        contentView = visualEffectView
+        containerView.wantsLayer = true
+        containerView.layer?.cornerRadius = 18
+        containerView.layer?.masksToBounds = true
+        contentView = containerView
     }
 
     override var canBecomeKey: Bool { true }
@@ -47,14 +48,14 @@ final class FloatingPanel: NSPanel {
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.translatesAutoresizingMaskIntoConstraints = false
 
-        visualEffectView.subviews.forEach { $0.removeFromSuperview() }
-        visualEffectView.addSubview(hostingView)
+        containerView.subviews.forEach { $0.removeFromSuperview() }
+        containerView.addSubview(hostingView)
 
         NSLayoutConstraint.activate([
-            hostingView.leadingAnchor.constraint(equalTo: visualEffectView.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: visualEffectView.trailingAnchor),
-            hostingView.topAnchor.constraint(equalTo: visualEffectView.topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: visualEffectView.bottomAnchor),
+            hostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            hostingView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
         ])
     }
 
