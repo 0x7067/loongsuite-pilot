@@ -118,6 +118,7 @@ export interface InnerTraceConfig {
 }
 
 export interface AnalyticsConfig {
+  privacy?: { excludeWorkspaces: string[] };
   enabled: boolean;
   autoStart: boolean;
   dataDir: string;

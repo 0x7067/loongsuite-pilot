@@ -303,3 +303,22 @@ loongsuite-pilot info
 ```
 
 Use [Local JSONL Output](local-jsonl-output.md) as the quickest way to confirm that events are being collected.
+
+## Workspace exclusions
+
+From the source repository, run `bash deploy/installer-opensource.sh install --exclude-workspace "/absolute/project"`. For the downloaded installer:
+
+```bash
+curl -fsSL https://loongcollector-community-edition.oss-cn-shanghai.aliyuncs.com/loongsuite-pilot/installer.sh -o /tmp/loongsuite-pilot-installer.sh && \
+bash /tmp/loongsuite-pilot-installer.sh install --exclude-workspace "/absolute/project"
+```
+
+Use repeatable `--exclude-workspace "/absolute/project"` arguments with the shell installer, or `-ExcludeWorkspace "C:\private", "D:\secret"` with the Windows installer. Explicit installation arguments replace the list; omitted arguments and upgrades preserve it. Alternatively edit `config.json` and restart Pilot:
+
+```json
+{ "privacy": { "excludeWorkspaces": ["/absolute/private-project"] } }
+```
+
+An empty array disables filtering after restart. Run `loongsuite-pilot restart` after every rule edit: hooks may read the new configuration on their next invocation, while the running collector keeps its startup rules. The new rules are not globally effective during this interval. Rules match the directory and descendants, including symlink aliases, without matching sibling prefixes. Windows local paths are matched case-insensitively. Only explicit Agent working-directory/workspace metadata is used; no Git repository is required. Any excluded root in a multi-root workspace blocks the session. Unknown workspaces are allowed. Once identified as excluded, subsequent session events are dropped even after switching directories or restarting Pilot. Each rule list has separate persisted decisions; restoring an earlier list reuses its decisions. Records without a session ID are evaluated individually. If the state directory is unwritable, exclusions remain in memory and public sessions continue normally. A rate-limited diagnostic omits directory names, and later events retry persistence. Cross-process and restart continuity is not guaranteed until persistence succeeds.
+
+Filtering applies before JSONL/SLS/HTTP/OTLP output, Codex/Qoder attachment uploads, shared Hook history writers (`writeJsonlRecords` / `appendRowsToHistory`), and both Cursor stop/deferred-response history writers. Independent file/API pipelines inspect explicit workspace metadata; plain text and records without such metadata remain allowed. This is session output control, not a filesystem access restriction: adapters may read native transcripts or Hook files to identify a workspace, and the Cursor event journal and plugin-owned native/intermediate JSONL files may be written before filtering. Existing local/remote data is not removed; accessing excluded files from another workspace is outside this feature's scope.
