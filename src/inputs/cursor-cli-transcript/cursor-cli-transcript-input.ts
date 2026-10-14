@@ -34,6 +34,9 @@ export class CursorCliTranscriptInput extends BaseSessionInput {
   readonly agentType = ClientType.CursorCli;
   private readonly projectsDir: string;
   private readonly pending = new Map<string, PendingRow[]>();
+  // Where this instance stopped reading: past the persisted offset while a turn is still open, so
+  // rows already held in `pending` are not read again. Lost on restart, which rereads from the offset.
+  private readonly scanned = new Map<string, number>();
 
   constructor(opts: CursorCliTranscriptInputOptions) {
     super({
@@ -72,7 +75,11 @@ export class CursorCliTranscriptInput extends BaseSessionInput {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         await this.walk(full, depth + 1, out);
-      } else if (entry.isFile() && entry.name.endsWith('.jsonl') && full.includes('agent-transcripts')) {
+      } else if (
+        entry.isFile() &&
+        entry.name.endsWith('.jsonl') &&
+        path.basename(path.dirname(dir)) === 'agent-transcripts'
+      ) {
         out.push(full);
       }
     }
@@ -117,10 +124,13 @@ export class CursorCliTranscriptInput extends BaseSessionInput {
       offset = 0;
       this.stateStore.setOffset(stateKey, 0);
       this.pending.delete(filePath);
+      this.scanned.delete(filePath);
     }
-    if (stat.size > offset) {
-      const end = Math.min(stat.size, offset + READ_BUDGET_BYTES);
-      const rows = await this.readCompleteRows(filePath, offset, end);
+    const from = Math.max(offset, this.scanned.get(filePath) ?? 0);
+    if (stat.size > from) {
+      const end = Math.min(stat.size, from + READ_BUDGET_BYTES);
+      const { rows, readTo } = await this.readCompleteRows(filePath, from, end);
+      this.scanned.set(filePath, readTo);
       const pending = this.pending.get(filePath) ?? [];
       pending.push(...rows);
       this.pending.set(filePath, pending);
@@ -185,16 +195,16 @@ export class CursorCliTranscriptInput extends BaseSessionInput {
     filePath: string,
     offset: number,
     end: number,
-  ): Promise<PendingRow[]> {
+  ): Promise<{ rows: PendingRow[]; readTo: number }> {
     const rows: PendingRow[] = [];
-    if (end <= offset) return rows;
+    if (end <= offset) return { rows, readTo: offset };
     const handle = await fs.open(filePath, 'r');
     try {
       const buf = Buffer.alloc(end - offset);
       const { bytesRead } = await handle.read(buf, 0, buf.length, offset);
       const bytes = buf.subarray(0, bytesRead);
       const lastNewline = bytes.lastIndexOf(0x0a);
-      if (lastNewline < 0) return rows;
+      if (lastNewline < 0) return { rows, readTo: offset };
       const text = bytes.subarray(0, lastNewline + 1).toString('utf-8');
       let position = offset;
       for (const line of text.split('\n')) {
@@ -216,7 +226,7 @@ export class CursorCliTranscriptInput extends BaseSessionInput {
         }
         position += lineBytes;
       }
-      return rows;
+      return { rows, readTo: offset + lastNewline + 1 };
     } finally {
       await handle.close();
     }
