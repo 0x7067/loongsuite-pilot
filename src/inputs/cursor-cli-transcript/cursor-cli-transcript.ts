@@ -24,8 +24,9 @@ function sha32(parts: Array<string | number>): string {
 function capValue(value: unknown): JsonValue {
   const json = toJsonValue(value) ?? '';
   const text = typeof json === 'string' ? json : JSON.stringify(json);
-  if (Buffer.byteLength(text) <= MAX_ARG_BYTES) return json;
-  return `${text.slice(0, MAX_ARG_BYTES)}...[truncated]`;
+  const bytes = Buffer.from(text, 'utf8');
+  if (bytes.length <= MAX_ARG_BYTES) return json;
+  return `${bytes.subarray(0, MAX_ARG_BYTES).toString('utf8').replace(/�$/u, '')}...[truncated]`;
 }
 
 function blockText(block: CursorCliContentBlock): string | null {

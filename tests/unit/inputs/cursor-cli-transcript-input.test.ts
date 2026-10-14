@@ -125,6 +125,50 @@ describe('CursorCliTranscriptInput', () => {
     ]);
   });
 
+  it('does not reread an open turn across polls on the same instance', async () => {
+    const input = makeInput();
+    await fs.writeFile(transcriptFile, `${userRow('one')}\n`, 'utf-8');
+    expect(await collectOnce(input)).toHaveLength(0);
+
+    await fs.appendFile(transcriptFile, `${assistantRow([{ type: 'text', text: 'two' }])}\n`, 'utf-8');
+    expect(await collectOnce(input)).toHaveLength(0);
+
+    await fs.appendFile(transcriptFile, `${endRow('success')}\n`, 'utf-8');
+    const entries = await collectOnce(input);
+    expect(entries.map((e) => e['gen_ai.turn.id'])).toEqual(Array(4).fill(`${CONV}:t1`));
+    expect(entries[0]['gen_ai.input.messages_delta']).toEqual([
+      { role: 'user', parts: [{ type: 'text', content: 'one' }] },
+    ]);
+  });
+
+  it('ignores jsonl outside agent-transcripts/<conversation>/', async () => {
+    const stray = path.join(projectsDir, 'my-agent-transcripts-app', 'notes', 'log.jsonl');
+    await fs.mkdir(path.dirname(stray), { recursive: true });
+    await fs.writeFile(stray, [userRow('x'), endRow('success'), ''].join('\n'), 'utf-8');
+
+    expect(await collectOnce(makeInput())).toHaveLength(0);
+  });
+
+  it('caps tool arguments by UTF-8 bytes without splitting a character', async () => {
+    await fs.writeFile(
+      transcriptFile,
+      [
+        userRow('go'),
+        assistantRow([{ type: 'tool_use', name: 'Write', input: '界'.repeat(70_000) }]),
+        endRow('success'),
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
+    const call = (await collectOnce(makeInput())).find((e) => e['event.name'] === 'tool.call');
+    const args = call?.['gen_ai.tool.call.arguments'] as string;
+    expect(args.endsWith('...[truncated]')).toBe(true);
+    const kept = args.slice(0, -'...[truncated]'.length);
+    expect(Buffer.byteLength(kept)).toBeLessThanOrEqual(64 * 1024);
+    expect(kept).not.toContain('�');
+  });
+
   it('does not re-emit flushed turns on restart', async () => {
     await fs.writeFile(
       transcriptFile,
